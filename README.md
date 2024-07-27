@@ -17,6 +17,7 @@ Extensible and maintainable code structure.
 Includes an automated test to verify the calculations.
 
 ## Project Structure
+```
 ├── src
 │   ├── Command
 │   │   └── ProcessCsvCommand.php
@@ -31,7 +32,7 @@ Includes an automated test to verify the calculations.
 │   └── autoload.php
 ├── composer.json
 └── README.md
-
+```
 ## Installation
 Clone the repository:
 
