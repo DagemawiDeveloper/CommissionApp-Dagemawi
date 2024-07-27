@@ -1,0 +1,1 @@
+{"version":1,"defects":{"CommissionCalculatorTest::testCalculate":5,"CommissionCalculatorTest::testCalculatePrivateWithdraw":8},"times":{"CommissionCalculatorTest::testCalculate":0.095,"CommissionCalculatorTest::testCalculatePrivateWithdraw":0.051}}
