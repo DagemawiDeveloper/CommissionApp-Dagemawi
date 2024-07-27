@@ -32,6 +32,8 @@ Includes an automated test to verify the calculations.
 │   └── autoload.php
 ├── composer.json
 └── README.md
+└── input.csv
+└── script.php
 ```
 ## Installation
 Clone the repository:
