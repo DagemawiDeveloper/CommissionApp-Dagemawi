@@ -9,6 +9,40 @@ This system calculates commission fees for deposit and withdrawal operations bas
 Time Spent
 Approximately 12 hours were spent on completing this project. This includes time for development, testing, and documentation.
 
+## Features
+Calculates commission fees for both private and business users.
+Handles different currencies and converts them as needed.
+Applies free withdrawal limits for private users within a calendar week.
+Extensible and maintainable code structure.
+Includes an automated test to verify the calculations.
+
+## Project Structure
+├── src
+│   ├── Command
+│   │   └── ProcessCsvCommand.php
+│   ├── Model
+│   │   └── Operation.php
+│   ├── Service
+│   │   ├── CommissionCalculator.php
+│   │   └── CurrencyConverter.php
+├── tests
+│   └── CommissionCalculatorTest.php
+├── vendor
+│   └── autoload.php
+├── composer.json
+└── README.md
+
+## Installation
+Clone the repository:
+
+``` git clone https://github.com/DagemawiDeveloper/CommissionApp-Dagemawi.git ```
+
+``` cd CommissionApp-Dagemawi ```
+
+## Install dependencies:
+
+``` composer install ```
+
 ## Requirements
 
 - PHP 7.4 or higher
