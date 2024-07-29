@@ -7,7 +7,7 @@ Author: Dagemawi Alemayehu
 This system calculates commission fees for deposit and withdrawal operations based on user type (private or business) and transaction currency.
 
 Time Spent
-Approximately 12 hours were spent on completing this project. This includes time for development, testing, and documentation.
+Approximately 12 hours were spent on completing this project. This includes time for development and testing. 
 
 ## Features
 Calculates commission fees for both private and business users.
