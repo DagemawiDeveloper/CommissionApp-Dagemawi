@@ -3,154 +3,117 @@
 namespace CommissionApp\Service;
 
 use CommissionApp\Model\Operation;
+use DateTime;
 
 /**
- * Class CommissionCalculator
- * 
- * Handles the calculation of commission fees for deposit and withdrawal operations
- * based on user type (private or business) and transaction currency.
+ * Applies commission policies to deposit and withdrawal operations.
  */
 class CommissionCalculator
 {
-    /**
-     * @var CurrencyConverter
-     */
-    private $currencyConverter;
+    private const DEPOSIT_RATE = 0.0003;
+    private const BUSINESS_WITHDRAW_RATE = 0.005;
+    private const PRIVATE_WITHDRAW_RATE = 0.003;
+    private const PRIVATE_FREE_OPERATIONS_PER_WEEK = 3;
+    private const PRIVATE_FREE_AMOUNT_EUR_PER_WEEK = 1000.0;
+
+    private CurrencyConverter $currencyConverter;
 
     /**
-     * @var array
+     * Weekly private-withdrawal state keyed by user ID.
+     *
+     * @var array<int|string, array{weekStart:string,totalAmountEur:float,operationCount:int}>
      */
-    private $privateWithdrawals;
+    private array $privateWithdrawals = [];
 
-    /**
-     * CommissionCalculator constructor.
-     * 
-     * @param CurrencyConverter $currencyConverter An instance of CurrencyConverter for currency conversions.
-     */
     public function __construct(CurrencyConverter $currencyConverter)
     {
         $this->currencyConverter = $currencyConverter;
-        $this->privateWithdrawals = [];
     }
 
-    /**
-     * Calculates the commission fee based on the operation type and user type.
-     * 
-     * @param Operation $operation The operation to be processed.
-     * @return float The calculated commission fee.
-     */
-    public function calculate(Operation $operation)
+    public function calculate(Operation $operation): float
     {
-        // Determine the type of operation and user, then delegate to the appropriate calculation method.
-        if ($operation->getUserType() === 'private') {
-            if ($operation->getOperationType() === 'withdraw') {
-                return $this->calculatePrivateWithdraw($operation);
-            } elseif ($operation->getOperationType() === 'deposit') {
-                return $this->calculateDeposit($operation);
-            }
-        } elseif ($operation->getUserType() === 'business') {
-            if ($operation->getOperationType() === 'withdraw') {
-                return $this->calculateBusinessWithdraw($operation);
-            } elseif ($operation->getOperationType() === 'deposit') {
-                return $this->calculateDeposit($operation);
-            }
+        if ($operation->getOperationType() === 'deposit') {
+            return $this->calculateDeposit($operation);
         }
 
-        // Return 0 if operation type or user type is unknown.
-        return 0;
+        if ($operation->getOperationType() !== 'withdraw') {
+            return 0.0;
+        }
+
+        if ($operation->getUserType() === 'private') {
+            return $this->calculatePrivateWithdraw($operation);
+        }
+
+        if ($operation->getUserType() === 'business') {
+            return $this->calculateBusinessWithdraw($operation);
+        }
+
+        return 0.0;
     }
 
-    /**
-     * Calculates the commission fee for private withdrawals.
-     * 
-     * @param Operation $operation The withdrawal operation details.
-     * @return float The calculated commission fee.
-     */
-    private function calculatePrivateWithdraw(Operation $operation)
+    private function calculatePrivateWithdraw(Operation $operation): float
     {
         $userId = $operation->getUserId();
-        $amount = $operation->getAmount();
         $currency = $operation->getCurrency();
-        $date = $operation->getDate();
+        $amount = (float) $operation->getAmount();
+        $amountEur = $currency === 'EUR'
+            ? $amount
+            : $this->currencyConverter->convert($amount, $currency, 'EUR');
 
-        // Convert amount to EUR if it is in a different currency.
-        if ($currency !== 'EUR') {
-            $amount = $this->currencyConverter->convert($amount, $currency, 'EUR');
+        $weekStart = (new DateTime($operation->getDate()))
+            ->modify('monday this week')
+            ->format('Y-m-d');
+
+        $state = $this->privateWithdrawals[$userId] ?? $this->newWeekState($weekStart);
+
+        if ($state['weekStart'] !== $weekStart) {
+            $state = $this->newWeekState($weekStart);
         }
 
-        // Initialize user data if it does not exist.
-        if (!isset($this->privateWithdrawals[$userId])) {
-            $this->privateWithdrawals[$userId] = [
-                'totalAmount' => 0,
-                'operationCount' => 0,
-                'weekStart' => (new \DateTime($date))->modify('monday this week')->format('Y-m-d')
-            ];
-        }
+        $remainingFreeAmountEur = max(
+            0.0,
+            self::PRIVATE_FREE_AMOUNT_EUR_PER_WEEK - $state['totalAmountEur']
+        );
 
-        $userData = $this->privateWithdrawals[$userId];
+        $operationStillFree = $state['operationCount'] < self::PRIVATE_FREE_OPERATIONS_PER_WEEK;
+        $freeAmountEur = $operationStillFree
+            ? min($amountEur, $remainingFreeAmountEur)
+            : 0.0;
 
-        // Check if the operation is within a new week.
-        $currentWeekStart = (new \DateTime($date))->modify('monday this week')->format('Y-m-d');
-        if ($userData['weekStart'] !== $currentWeekStart) {
-            // Reset user data for the new week.
-            $userData['totalAmount'] = 0;
-            $userData['operationCount'] = 0;
-            $userData['weekStart'] = $currentWeekStart;
-        }
+        $commissionableAmountEur = max(0.0, $amountEur - $freeAmountEur);
 
-        // Determine the commissionable amount based on free withdrawal limits.
-        $commissionableAmount = 0;
-        if ($userData['operationCount'] < 3 && ($userData['totalAmount'] + $amount) <= 1000) {
-            // The withdrawal is within the free limit.
-            $userData['totalAmount'] += $amount;
-        } else {
-            // Calculate the commissionable amount for the part exceeding the free limit.
-            $freeLimit = 1000;
-            if ($userData['totalAmount'] < $freeLimit) {
-                $remainingFreeLimit = $freeLimit - $userData['totalAmount'];
-                if ($amount > $remainingFreeLimit) {
-                    $commissionableAmount = $amount - $remainingFreeLimit;
-                }
-                $userData['totalAmount'] = $freeLimit;
-            } else {
-                $commissionableAmount = $amount;
-            }
-            $userData['totalAmount'] += $amount;
-            $userData['operationCount']++;
-        }
+        // Every private withdrawal consumes one of the weekly operation slots,
+        // regardless of whether the amount itself was fully free.
+        $state['operationCount']++;
+        $state['totalAmountEur'] += $amountEur;
+        $this->privateWithdrawals[$userId] = $state;
 
-        $this->privateWithdrawals[$userId] = $userData;
+        $commissionableAmount = $currency === 'EUR'
+            ? $commissionableAmountEur
+            : $this->currencyConverter->convert($commissionableAmountEur, 'EUR', $currency);
 
-        // Convert commissionable amount back to the original currency if needed.
-        if ($currency !== 'EUR') {
-            $commissionableAmount = $this->currencyConverter->convert($commissionableAmount, 'EUR', $currency);
-        }
+        return round($commissionableAmount * self::PRIVATE_WITHDRAW_RATE, 2);
+    }
 
-        // Return the rounded commission fee (0.3% of the commissionable amount).
-        return round($commissionableAmount * 0.003, 2);
+    private function calculateBusinessWithdraw(Operation $operation): float
+    {
+        return round((float) $operation->getAmount() * self::BUSINESS_WITHDRAW_RATE, 2);
+    }
+
+    private function calculateDeposit(Operation $operation): float
+    {
+        return round((float) $operation->getAmount() * self::DEPOSIT_RATE, 2);
     }
 
     /**
-     * Calculates the commission fee for business withdrawals.
-     * 
-     * @param Operation $operation The withdrawal operation details.
-     * @return float The calculated commission fee.
+     * @return array{weekStart:string,totalAmountEur:float,operationCount:int}
      */
-    private function calculateBusinessWithdraw(Operation $operation)
+    private function newWeekState(string $weekStart): array
     {
-        // Calculate and return the commission fee (0.5% of the withdrawal amount).
-        return round($operation->getAmount() * 0.005, 2);
-    }
-
-    /**
-     * Calculates the commission fee for deposits.
-     * 
-     * @param Operation $operation The deposit operation details.
-     * @return float The calculated commission fee.
-     */
-    private function calculateDeposit(Operation $operation)
-    {
-        // Calculate and return the commission fee (0.03% of the deposit amount).
-        return round($operation->getAmount() * 0.0003, 2);
+        return [
+            'weekStart' => $weekStart,
+            'totalAmountEur' => 0.0,
+            'operationCount' => 0,
+        ];
     }
 }
