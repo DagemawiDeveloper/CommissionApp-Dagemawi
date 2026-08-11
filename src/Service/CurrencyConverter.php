@@ -2,46 +2,52 @@
 
 namespace CommissionApp\Service;
 
+use InvalidArgumentException;
+
 /**
- * Class CurrencyConverter
- * 
- * Converts amounts between different currencies based on provided exchange rates.
+ * Converts amounts between currencies using rates expressed relative to EUR.
  */
 class CurrencyConverter
 {
-    /**
-     * @var array An associative array of exchange rates with currency codes as keys.
-     */
-    private $rates;
+    /** @var array<string, float> */
+    private array $rates;
 
     /**
-     * CurrencyConverter constructor.
-     * 
-     * @param array $rates An associative array of exchange rates where the keys are currency codes
-     *                     and values are the exchange rates relative to EUR.
+     * @param array<string, int|float> $rates
      */
     public function __construct(array $rates)
     {
-        $this->rates = $rates;
+        if (!isset($rates['EUR'])) {
+            $rates['EUR'] = 1.0;
+        }
+
+        foreach ($rates as $currency => $rate) {
+            if (!is_numeric($rate) || (float) $rate <= 0) {
+                throw new InvalidArgumentException("Exchange rate for {$currency} must be greater than zero.");
+            }
+        }
+
+        $this->rates = array_map('floatval', $rates);
     }
 
-    /**
-     * Converts an amount from one currency to another.
-     * 
-     * @param float  $amount       The amount to be converted.
-     * @param string $fromCurrency The currency code of the amount's current currency.
-     * @param string $toCurrency   The currency code of the target currency.
-     * @return float The converted amount in the target currency.
-     */
-    public function convert($amount, $fromCurrency, $toCurrency)
+    public function convert(float $amount, string $fromCurrency, string $toCurrency): float
     {
-        // If the source and target currencies are the same, return the amount unchanged.
         if ($fromCurrency === $toCurrency) {
             return $amount;
         }
 
-        // Convert the amount to EUR first, then to the target currency.
+        $this->assertSupported($fromCurrency);
+        $this->assertSupported($toCurrency);
+
         $amountInEur = $amount / $this->rates[$fromCurrency];
+
         return $amountInEur * $this->rates[$toCurrency];
+    }
+
+    private function assertSupported(string $currency): void
+    {
+        if (!array_key_exists($currency, $this->rates)) {
+            throw new InvalidArgumentException("Unsupported currency: {$currency}");
+        }
     }
 }
