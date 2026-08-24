@@ -1,11 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 use CommissionApp\Model\Operation;
 use CommissionApp\Service\CommissionCalculator;
 use CommissionApp\Service\CurrencyConverter;
 use PHPUnit\Framework\TestCase;
 
-class CommissionCalculatorTest extends TestCase
+final class CommissionCalculatorTest extends TestCase
 {
     private function calculator(): CommissionCalculator
     {
@@ -22,22 +24,21 @@ class CommissionCalculatorTest extends TestCase
     {
         $calculator = $this->calculator();
 
-        $operation = new Operation('2024-07-01', 1, 'private', 'withdraw', 1000.00, 'EUR');
-
-        $this->assertSame(0.00, $calculator->calculate($operation));
+        self::assertSame(
+            0.00,
+            $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 1000.00, 'EUR'))
+        );
     }
 
     public function test_only_amount_above_weekly_free_limit_is_commissionable(): void
     {
         $calculator = $this->calculator();
 
-        $this->assertSame(
+        self::assertSame(
             0.00,
             $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 800.00, 'EUR'))
         );
-
-        // Only €300 of this €500 withdrawal exceeds the remaining €200 allowance.
-        $this->assertSame(
+        self::assertSame(
             0.90,
             $calculator->calculate(new Operation('2024-07-02', 1, 'private', 'withdraw', 500.00, 'EUR'))
         );
@@ -48,14 +49,13 @@ class CommissionCalculatorTest extends TestCase
         $calculator = $this->calculator();
 
         foreach (['2024-07-01', '2024-07-02', '2024-07-03'] as $date) {
-            $this->assertSame(
+            self::assertSame(
                 0.00,
                 $calculator->calculate(new Operation($date, 1, 'private', 'withdraw', 100.00, 'EUR'))
             );
         }
 
-        // The amount allowance still has room, but the three free operations are used.
-        $this->assertSame(
+        self::assertSame(
             0.30,
             $calculator->calculate(new Operation('2024-07-04', 1, 'private', 'withdraw', 100.00, 'EUR'))
         );
@@ -66,46 +66,71 @@ class CommissionCalculatorTest extends TestCase
         $calculator = $this->calculator();
 
         $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 1000.00, 'EUR'));
-        $this->assertSame(
+        self::assertSame(
             1.50,
             $calculator->calculate(new Operation('2024-07-02', 1, 'private', 'withdraw', 500.00, 'EUR'))
         );
-
-        $this->assertSame(
+        self::assertSame(
             0.00,
             $calculator->calculate(new Operation('2024-07-08', 1, 'private', 'withdraw', 1000.00, 'EUR'))
         );
     }
 
-    public function test_private_weekly_state_is_isolated_per_user(): void
+    public function test_weekly_state_is_isolated_by_user_and_iso_week_even_for_unordered_rows(): void
     {
         $calculator = $this->calculator();
 
-        $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 1000.00, 'EUR'));
-
-        $this->assertSame(
+        self::assertSame(
             0.00,
-            $calculator->calculate(new Operation('2024-07-02', 2, 'private', 'withdraw', 1000.00, 'EUR'))
+            $calculator->calculate(new Operation('2024-07-08', 1, 'private', 'withdraw', 1000.00, 'EUR'))
+        );
+        self::assertSame(
+            0.00,
+            $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 1000.00, 'EUR'))
+        );
+        self::assertSame(
+            0.30,
+            $calculator->calculate(new Operation('2024-07-09', 1, 'private', 'withdraw', 100.00, 'EUR'))
+        );
+        self::assertSame(
+            0.00,
+            $calculator->calculate(new Operation('2024-07-09', 2, 'private', 'withdraw', 1000.00, 'EUR'))
         );
     }
 
-    public function test_business_withdrawal_commission(): void
+    public function test_iso_week_spanning_calendar_year_shares_one_allowance(): void
     {
         $calculator = $this->calculator();
 
-        $this->assertSame(
+        self::assertSame(
+            0.00,
+            $calculator->calculate(new Operation('2024-12-30', 1, 'private', 'withdraw', 1000.00, 'EUR'))
+        );
+        self::assertSame(
+            0.30,
+            $calculator->calculate(new Operation('2025-01-01', 1, 'private', 'withdraw', 100.00, 'EUR'))
+        );
+        self::assertSame(
+            0.00,
+            $calculator->calculate(new Operation('2025-01-06', 1, 'private', 'withdraw', 1000.00, 'EUR'))
+        );
+    }
+
+    public function test_business_withdrawal_and_deposit_commissions_use_half_up_rounding(): void
+    {
+        $calculator = $this->calculator();
+
+        self::assertSame(
             5.00,
             $calculator->calculate(new Operation('2024-07-01', 2, 'business', 'withdraw', 1000.00, 'EUR'))
         );
-    }
-
-    public function test_deposit_commission(): void
-    {
-        $calculator = $this->calculator();
-
-        $this->assertSame(
+        self::assertSame(
             0.30,
             $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'deposit', 1000.00, 'EUR'))
+        );
+        self::assertSame(
+            0.01,
+            $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'deposit', 16.67, 'EUR'))
         );
     }
 
@@ -113,14 +138,11 @@ class CommissionCalculatorTest extends TestCase
     {
         $calculator = $this->calculator();
 
-        // 1149.70 USD converts to exactly 1000 EUR at the configured rate.
-        $this->assertSame(
+        self::assertSame(
             0.00,
             $calculator->calculate(new Operation('2024-07-01', 1, 'private', 'withdraw', 1149.70, 'USD'))
         );
-
-        // The weekly EUR allowance is exhausted, so this withdrawal is fully commissionable.
-        $this->assertSame(
+        self::assertSame(
             0.30,
             $calculator->calculate(new Operation('2024-07-02', 1, 'private', 'withdraw', 100.00, 'USD'))
         );
