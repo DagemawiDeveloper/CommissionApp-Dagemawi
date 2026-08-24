@@ -1,122 +1,154 @@
-<?php 
+<?php
+
+declare(strict_types=1);
 
 namespace CommissionApp\Model;
 
+use DateTimeImmutable;
+use InvalidArgumentException;
+
 /**
- * Class Operation
- * 
- * Represents a financial operation with details such as date, user information,
- * type of operation, amount, and currency.
+ * Immutable, validated financial operation.
  */
-class Operation
+final class Operation
 {
-    /**
-     * @var string The date of the operation in 'Y-m-d' format.
-     */
-    private $date;
+    private DateTimeImmutable $date;
+    private int $userId;
+    private string $userType;
+    private string $operationType;
+    private float $amount;
+    private string $currency;
 
     /**
-     * @var int The unique identifier of the user performing the operation.
+     * @param int|string $userId
+     * @param int|float|string $amount
      */
-    private $userId;
-
-    /**
-     * @var string The type of user ('private' or 'business').
-     */
-    private $userType;
-
-    /**
-     * @var string The type of operation ('withdraw' or 'deposit').
-     */
-    private $operationType;
-
-    /**
-     * @var float The amount of money involved in the operation.
-     */
-    private $amount;
-
-    /**
-     * @var string The currency code of the amount (e.g., 'EUR', 'USD').
-     */
-    private $currency;
-
-    /**
-     * Operation constructor.
-     * 
-     * @param string $date The date of the operation.
-     * @param int $userId The user ID of the person performing the operation.
-     * @param string $userType The type of user ('private' or 'business').
-     * @param string $operationType The type of operation ('withdraw' or 'deposit').
-     * @param float $amount The amount involved in the operation.
-     * @param string $currency The currency code of the amount.
-     */
-    public function __construct($date, $userId, $userType, $operationType, $amount, $currency)
-    {
-        $this->date = $date;
-        $this->userId = $userId;
-        $this->userType = $userType;
-        $this->operationType = $operationType;
-        $this->amount = $amount;
-        $this->currency = $currency;
+    public function __construct(
+        string $date,
+        int|string $userId,
+        string $userType,
+        string $operationType,
+        int|float|string $amount,
+        string $currency
+    ) {
+        $this->date = $this->validateDate($date);
+        $this->userId = $this->validateUserId($userId);
+        $this->userType = $this->validateToken($userType, ['private', 'business'], 'user type');
+        $this->operationType = $this->validateToken($operationType, ['withdraw', 'deposit'], 'operation type');
+        $this->amount = $this->validateAmount($amount);
+        $this->currency = $this->validateCurrency($currency);
     }
 
-    /**
-     * Gets the date of the operation.
-     * 
-     * @return string The date of the operation.
-     */
-    public function getDate()
+    public function getDate(): string
     {
-        return $this->date;
+        return $this->date->format('Y-m-d');
     }
 
-    /**
-     * Gets the user ID of the person performing the operation.
-     * 
-     * @return int The user ID.
-     */
-    public function getUserId()
+    public function getIsoWeekKey(): string
+    {
+        return $this->date->format('o-W');
+    }
+
+    public function getUserId(): int
     {
         return $this->userId;
     }
 
-    /**
-     * Gets the type of user ('private' or 'business').
-     * 
-     * @return string The user type.
-     */
-    public function getUserType()
+    public function getUserType(): string
     {
         return $this->userType;
     }
 
-    /**
-     * Gets the type of operation ('withdraw' or 'deposit').
-     * 
-     * @return string The operation type.
-     */
-    public function getOperationType()
+    public function getOperationType(): string
     {
         return $this->operationType;
     }
 
-    /**
-     * Gets the amount of money involved in the operation.
-     * 
-     * @return float The amount.
-     */
-    public function getAmount()
+    public function getAmount(): float
     {
         return $this->amount;
     }
 
-    /**
-     * Gets the currency code of the amount involved in the operation.
-     * 
-     * @return string The currency code.
-     */
-    public function getCurrency()
+    public function getCurrency(): string
     {
         return $this->currency;
+    }
+
+    private function validateDate(string $date): DateTimeImmutable
+    {
+        $date = trim($date);
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        $errors = DateTimeImmutable::getLastErrors();
+        $hasErrors = is_array($errors)
+            && ($errors['warning_count'] > 0 || $errors['error_count'] > 0);
+
+        if (! $parsed || $hasErrors || $parsed->format('Y-m-d') !== $date) {
+            throw new InvalidArgumentException('Operation date must use a valid Y-m-d value.');
+        }
+
+        return $parsed;
+    }
+
+    private function validateUserId(int|string $userId): int
+    {
+        $validated = filter_var(
+            $userId,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]]
+        );
+
+        if ($validated === false) {
+            throw new InvalidArgumentException('User ID must be a positive integer.');
+        }
+
+        return (int) $validated;
+    }
+
+    /**
+     * @param list<string> $allowed
+     */
+    private function validateToken(string $value, array $allowed, string $label): string
+    {
+        $value = strtolower(trim($value));
+
+        if (! in_array($value, $allowed, true)) {
+            throw new InvalidArgumentException(sprintf(
+                'Unsupported %s "%s". Allowed values: %s.',
+                $label,
+                $value,
+                implode(', ', $allowed)
+            ));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param int|float|string $amount
+     */
+    private function validateAmount(int|float|string $amount): float
+    {
+        if (! is_numeric($amount)) {
+            throw new InvalidArgumentException('Operation amount must be numeric.');
+        }
+
+        $amount = (float) $amount;
+
+        if (! is_finite($amount) || $amount <= 0) {
+            throw new InvalidArgumentException('Operation amount must be finite and greater than zero.');
+        }
+
+        return $amount;
+    }
+
+    private function validateCurrency(string $currency): string
+    {
+        $currency = strtoupper(trim($currency));
+
+        if (! preg_match('/^[A-Z]{3}$/', $currency)) {
+            throw new InvalidArgumentException('Currency must be a three-letter ISO-style code.');
+        }
+
+        return $currency;
     }
 }
