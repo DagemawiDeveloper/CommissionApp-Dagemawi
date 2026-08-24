@@ -31,5 +31,18 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Run lint and PHPUnit
-        run: composer check
+      - name: Lint PHP files
+        run: composer lint
+
+      - name: Run PHPUnit
+        run: |
+          mkdir -p build
+          vendor/bin/phpunit --testdox --log-junit build/junit-${{ matrix.php }}.xml
+
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-php-${{ matrix.php }}
+          path: build/junit-${{ matrix.php }}.xml
+          if-no-files-found: ignore
