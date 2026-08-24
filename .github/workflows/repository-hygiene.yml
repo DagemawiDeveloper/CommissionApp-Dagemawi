@@ -1,0 +1,36 @@
+name: Repository Hygiene
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  repository-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject tracked Composer dependencies
+        shell: bash
+        run: |
+          tracked="$(git ls-files 'vendor/**')"
+          if [ -n "$tracked" ]; then
+            echo "Generated Composer dependencies must not be committed:"
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+          echo "No generated Composer dependencies are tracked."
+
+      - name: Reject obvious local artifacts
+        shell: bash
+        run: |
+          tracked="$(git ls-files '.env' '.phpunit.result.cache' '.DS_Store')"
+          if [ -n "$tracked" ]; then
+            echo "Local artifacts are tracked:"
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+          echo "No obvious local artifacts are tracked."
