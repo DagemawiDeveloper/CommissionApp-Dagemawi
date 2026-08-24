@@ -1,6 +1,6 @@
 {
   "name": "dagemawi/commission-calculation-engine",
-  "description": "A testable PHP commission engine for deposits, withdrawals, weekly allowances and currency conversion.",
+  "description": "A validated, testable PHP commission engine for deposits, withdrawals, weekly allowances and currency conversion.",
   "type": "project",
   "license": "MIT",
   "require": {
@@ -16,7 +16,12 @@
     }
   },
   "scripts": {
-    "test": "phpunit"
+    "lint": "find src tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l",
+    "test": "phpunit",
+    "check": [
+      "@lint",
+      "@test"
+    ]
   },
   "config": {
     "sort-packages": true
