@@ -37,7 +37,7 @@ jobs:
       - name: Run PHPUnit
         run: |
           mkdir -p build
-          vendor/bin/phpunit --testdox --log-junit build/junit-${{ matrix.php }}.xml
+          vendor/bin/phpunit tests --testdox --log-junit build/junit-${{ matrix.php }}.xml
 
       - name: Upload JUnit results
         if: always()
@@ -45,4 +45,4 @@ jobs:
         with:
           name: junit-php-${{ matrix.php }}
           path: build/junit-${{ matrix.php }}.xml
-          if-no-files-found: ignore
+          if-no-files-found: error
