@@ -1,7 +1,7 @@
 {
   "name": "dagemawi/commission-calculation-engine",
   "description": "A validated, testable PHP commission engine for deposits, withdrawals, weekly allowances and currency conversion.",
-  "type": "project",
+  "type": "library",
   "license": "MIT",
   "require": {
     "php": "^8.1",
