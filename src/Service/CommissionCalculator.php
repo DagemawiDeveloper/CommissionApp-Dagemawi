@@ -1,14 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CommissionApp\Service;
 
 use CommissionApp\Model\Operation;
-use DateTime;
+use LogicException;
 
 /**
- * Applies commission policies to deposit and withdrawal operations.
+ * Applies commission policies to validated operations.
  */
-class CommissionCalculator
+final class CommissionCalculator
 {
     private const DEPOSIT_RATE = 0.0003;
     private const BUSINESS_WITHDRAW_RATE = 0.005;
@@ -16,18 +18,15 @@ class CommissionCalculator
     private const PRIVATE_FREE_OPERATIONS_PER_WEEK = 3;
     private const PRIVATE_FREE_AMOUNT_EUR_PER_WEEK = 1000.0;
 
-    private CurrencyConverter $currencyConverter;
-
     /**
-     * Weekly private-withdrawal state keyed by user ID.
+     * Weekly state keyed by user ID and ISO week-year.
      *
-     * @var array<int|string, array{weekStart:string,totalAmountEur:float,operationCount:int}>
+     * @var array<int, array<string, array{totalAmountEur:float,operationCount:int}>>
      */
     private array $privateWithdrawals = [];
 
-    public function __construct(CurrencyConverter $currencyConverter)
+    public function __construct(private readonly CurrencyConverter $currencyConverter)
     {
-        $this->currencyConverter = $currencyConverter;
     }
 
     public function calculate(Operation $operation): float
@@ -36,84 +35,60 @@ class CommissionCalculator
             return $this->calculateDeposit($operation);
         }
 
-        if ($operation->getOperationType() !== 'withdraw') {
-            return 0.0;
-        }
-
-        if ($operation->getUserType() === 'private') {
-            return $this->calculatePrivateWithdraw($operation);
-        }
-
-        if ($operation->getUserType() === 'business') {
-            return $this->calculateBusinessWithdraw($operation);
-        }
-
-        return 0.0;
+        return match ($operation->getUserType()) {
+            'private' => $this->calculatePrivateWithdraw($operation),
+            'business' => $this->calculateBusinessWithdraw($operation),
+            default => throw new LogicException('Validated operation contains an unsupported user type.'),
+        };
     }
 
     private function calculatePrivateWithdraw(Operation $operation): float
     {
         $userId = $operation->getUserId();
+        $weekKey = $operation->getIsoWeekKey();
         $currency = $operation->getCurrency();
-        $amount = (float) $operation->getAmount();
+        $amount = $operation->getAmount();
         $amountEur = $currency === 'EUR'
             ? $amount
             : $this->currencyConverter->convert($amount, $currency, 'EUR');
 
-        $weekStart = (new DateTime($operation->getDate()))
-            ->modify('monday this week')
-            ->format('Y-m-d');
-
-        $state = $this->privateWithdrawals[$userId] ?? $this->newWeekState($weekStart);
-
-        if ($state['weekStart'] !== $weekStart) {
-            $state = $this->newWeekState($weekStart);
-        }
+        $state = $this->privateWithdrawals[$userId][$weekKey] ?? [
+            'totalAmountEur' => 0.0,
+            'operationCount' => 0,
+        ];
 
         $remainingFreeAmountEur = max(
             0.0,
             self::PRIVATE_FREE_AMOUNT_EUR_PER_WEEK - $state['totalAmountEur']
         );
-
-        $operationStillFree = $state['operationCount'] < self::PRIVATE_FREE_OPERATIONS_PER_WEEK;
-        $freeAmountEur = $operationStillFree
+        $freeAmountEur = $state['operationCount'] < self::PRIVATE_FREE_OPERATIONS_PER_WEEK
             ? min($amountEur, $remainingFreeAmountEur)
             : 0.0;
-
         $commissionableAmountEur = max(0.0, $amountEur - $freeAmountEur);
 
-        // Every private withdrawal consumes one of the weekly operation slots,
-        // regardless of whether the amount itself was fully free.
         $state['operationCount']++;
         $state['totalAmountEur'] += $amountEur;
-        $this->privateWithdrawals[$userId] = $state;
+        $this->privateWithdrawals[$userId][$weekKey] = $state;
 
         $commissionableAmount = $currency === 'EUR'
             ? $commissionableAmountEur
             : $this->currencyConverter->convert($commissionableAmountEur, 'EUR', $currency);
 
-        return round($commissionableAmount * self::PRIVATE_WITHDRAW_RATE, 2);
+        return $this->fee($commissionableAmount, self::PRIVATE_WITHDRAW_RATE);
     }
 
     private function calculateBusinessWithdraw(Operation $operation): float
     {
-        return round((float) $operation->getAmount() * self::BUSINESS_WITHDRAW_RATE, 2);
+        return $this->fee($operation->getAmount(), self::BUSINESS_WITHDRAW_RATE);
     }
 
     private function calculateDeposit(Operation $operation): float
     {
-        return round((float) $operation->getAmount() * self::DEPOSIT_RATE, 2);
+        return $this->fee($operation->getAmount(), self::DEPOSIT_RATE);
     }
 
-    /**
-     * @return array{weekStart:string,totalAmountEur:float,operationCount:int}
-     */
-    private function newWeekState(string $weekStart): array
+    private function fee(float $amount, float $rate): float
     {
-        return [
-            'weekStart' => $weekStart,
-            'totalAmountEur' => 0.0,
-            'operationCount' => 0,
-        ];
+        return round($amount * $rate, 2, PHP_ROUND_HALF_UP);
     }
 }
